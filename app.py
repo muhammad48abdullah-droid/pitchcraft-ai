@@ -58,7 +58,7 @@ Every value must be a plain string. Use "- " for bullet points and no markdown h
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Mono:wght@400;700&display=swap');
 :root { --blue:#0000F2; --line:rgba(255,255,255,.30); --dim:rgba(255,255,255,.78); }
-#MainMenu, footer, header[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] { display:none !important; }
+#MainMenu, footer, header, .stAppHeader, .stApp > header, [data-testid="stHeader"], [data-testid="stAppHeader"], [data-testid="stToolbar"], [data-testid="stAppToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; visibility:hidden !important; height:0 !important; min-height:0 !important; border:0 !important; box-shadow:none !important; background:transparent !important; } [data-testid="stAppViewContainer"], [data-testid="stMain"], section.main, .stApp { background-color:var(--blue) !important; border-top:0 !important; } [data-testid="stMainBlockContainer"], .block-container { padding-top:0 !important; }
 .stApp { background-color:var(--blue);
   background-image:linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
   background-size:40px 40px; color:#fff; font-family:'Space Mono', monospace; }
