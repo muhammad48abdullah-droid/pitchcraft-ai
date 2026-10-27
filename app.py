@@ -57,7 +57,7 @@ Every value must be a plain string. Use "- " for bullet points and no markdown h
 
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Mono:wght@400;700&display=swap');
-:root { --blue:#0500EB; --line:rgba(255,255,255,.30); --dim:rgba(255,255,255,.78); }
+:root { --blue:#0000F2; --line:rgba(255,255,255,.30); --dim:rgba(255,255,255,.78); }
 #MainMenu, footer, header[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] { display:none !important; }
 .stApp { background-color:var(--blue);
   background-image:linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
@@ -113,23 +113,115 @@ div[data-testid="stCaptionContainer"], div[data-testid="stCaptionContainer"] * {
 .card.accent { grid-column:1 / -1; background:#fff; color:var(--blue); box-shadow:6px 6px 0 rgba(0,0,0,.35); }
 .card.accent .card-head, .card.accent .card-head .idx, .card.accent .card-body, .card.accent .card-body * { color:var(--blue) !important; }
 
-@media (max-width:720px) { .nav { grid-template-columns:1fr; } .nav-l, .nav-r { display:none; } .cards { grid-template-columns:1fr; } }
+.nav a { color:#fff !important; text-decoration:none !important; }
+.nav a:hover { opacity:.75; }
+.nav-r { align-items:center; gap:1.6rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
+.nav a.nav-btn { color:var(--blue) !important; opacity:1; }
+.cmd-label { font-size:.7rem; font-weight:700; letter-spacing:.1em; margin:2.2rem 0 .6rem 0; color:var(--dim); }
+.cmd { border:1px solid var(--line); background:rgba(0,0,0,.22); padding:.9rem 1rem; font-size:.85rem; line-height:1.9; }
+.cmd .p { color:#8f8fff; margin-right:.6rem; }
+.sec { margin-top:5rem; border-top:1px solid var(--line); padding-top:2.5rem; }
+.sec-title { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:clamp(2.4rem, 5vw, 3.8rem); text-transform:uppercase; line-height:1; margin:0 0 2rem 0; }
+.feat-grid { display:grid; grid-template-columns:repeat(6, 1fr); gap:1.3rem; }
+.feat { grid-column:span 2; border:1px solid var(--line); background:rgba(0,0,0,.16); padding:1.4rem 1.5rem 1.6rem 1.5rem; }
+.feat:nth-child(n+4) { grid-column:span 3; }
+.feat .num { display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.1em; border:1px solid var(--line); background:rgba(255,255,255,.12); padding:.25rem .55rem; margin-bottom:1.2rem; }
+.feat h3 { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.7rem; text-transform:uppercase; line-height:1.1; margin:0 0 .7rem 0; padding:0; color:#fff; }
+.feat p { font-size:.9rem; line-height:1.65; color:#e4e4ff; margin:0; }
+.faq details { border-top:1px solid var(--line); padding:1.2rem 0; }
+.faq details:last-child { border-bottom:1px solid var(--line); }
+.faq summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:1rem; font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.5rem; text-transform:uppercase; letter-spacing:.02em; }
+.faq summary::-webkit-details-marker { display:none; }
+.faq summary::after { content:'+'; font-family:'Space Mono', monospace; font-size:1.6rem; }
+.faq details[open] summary::after { content:'–'; }
+.faq details p { margin:.9rem 0 0 0; max-width:46rem; line-height:1.7; color:#e4e4ff; font-size:.92rem; }
+.footer { margin-top:5rem; border-top:1px solid var(--line); padding-top:2rem; }
+.foot-word { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:clamp(3.5rem, 13vw, 10rem); line-height:.95; text-transform:uppercase; letter-spacing:.02em; }
+.foot-row { display:flex; justify-content:space-between; flex-wrap:wrap; gap:.8rem; margin-top:1.5rem; font-size:.72rem; font-weight:700; letter-spacing:.1em; color:var(--dim); }
+
+@media (max-width:720px) { .nav { grid-template-columns:1fr; } .nav-l, .nav-r { display:none; } .cards { grid-template-columns:1fr; } .feat, .feat:nth-child(n+4) { grid-column:1 / -1; } .feat-grid { grid-template-columns:1fr; } }
 """
 
 NAV_HTML = (
     '<div class="nav">'
     '<div class="nav-l"><span>IDEA → PITCH</span><span>EXPORT .TXT</span></div>'
     '<div class="nav-c">PITCHCRAFT<span>AI</span></div>'
-    '<div class="nav-r"><span class="nav-btn">POWERED BY GEMINI</span></div>'
+    '<div class="nav-r"><a href="#features">FEATURES</a><a href="#faq">FAQ</a>'
+    '<a class="nav-btn" href="#generate">GENERATE PITCH</a></div>'
     "</div>"
 )
 
 HERO_HTML = (
-    '<div class="tag">PITCHCRAFT AI // STARTUP PITCH GENERATOR</div>'
+    '<div class="tag" id="generate">PITCHCRAFT AI // STARTUP PITCH GENERATOR</div>'
     '<div class="hero-title">One line.<br>Full pitch<br>deck.</div>'
     '<div class="hero-sub">Describe your idea in a single sentence. Gemini drafts the problem, '
     "solution, market, revenue model and tagline for you.</div>"
 )
+
+
+EXAMPLES_HTML = (
+    '<div class="cmd-label">TRY AN IDEA LIKE</div>'
+    '<div class="cmd">'
+    '<div><span class="p">$</span>An app for renting bicycles in Lahore</div>'
+    '<div><span class="p">$</span>A cookies branch in Peshawar</div>'
+    '<div><span class="p">$</span>A tutoring marketplace for university students</div>'
+    "</div>"
+)
+
+FEATURES = [
+    ("#1 Problem", "Sharp Problem Statement",
+     "Names the real pain point your customers feel, framed the way investors expect to hear it."),
+    ("#2 Solution", "Unique Solution",
+     "Explains what you are building, how it works, and why it beats the alternatives."),
+    ("#3 Market", "Target Market Analysis",
+     "Customer segments, estimated market size, and the competitors you will face, tailored to your city or region."),
+    ("#4 Revenue", "Monetization & Revenue",
+     "Revenue streams, pricing ideas, and margin notes you can pressure-test before you pitch."),
+    ("#5 Brand", "Tagline & Slogans",
+     "A catchy tagline plus alternative marketing slogans, ready to try out."),
+]
+
+FAQS = [
+    ("How does PitchCraft AI work?",
+     "You type your idea in one sentence. The app sends it to Google's Gemini model with a structured "
+     "prompt and shows the five sections it returns. You can download them as a .txt file."),
+    ("Is it free to use?",
+     "Yes. The app runs on its owner's Gemini API key, so if many people use it at once you may see a "
+     "&ldquo;busy&rdquo; message. Wait a minute and try again."),
+    ("Are the market numbers real?",
+     "No. Figures are AI estimates, not researched data. Treat the pitch as a strong first draft and "
+     "verify every number before showing it to investors."),
+    ("Is my idea saved?",
+     "The app does not store ideas or pitches in a database. They exist only in your browser session. "
+     "Your text is sent to Google's Gemini API to generate the pitch."),
+    ("Can I get a different version?",
+     "Yes. Generate again for a fresh take, or edit the downloaded text file to make it your own."),
+]
+
+
+def features_html() -> str:
+    cards = "".join(
+        f'<div class="feat"><span class="num">{escape(n)}</span><h3>{escape(t)}</h3><p>{escape(d)}</p></div>'
+        for n, t, d in FEATURES
+    )
+    return f'<div class="sec" id="features"><div class="sec-title">Features</div><div class="feat-grid">{cards}</div></div>'
+
+
+def faq_html() -> str:
+    items = "".join(
+        f"<details{' open' if i == 0 else ''}><summary>{q}</summary><p>{a}</p></details>"
+        for i, (q, a) in enumerate(FAQS)
+    )
+    return f'<div class="sec" id="faq"><div class="sec-title">FAQs</div><div class="faq">{items}</div></div>'
+
+
+def footer_html() -> str:
+    year = datetime.now().year
+    return (
+        '<div class="footer"><div class="foot-word">PitchCraft</div>'
+        '<div class="foot-row"><span>FROM ONE LINE TO A FULL PITCH</span>'
+        f"<span>© {year} PITCHCRAFT AI · POWERED BY GOOGLE GEMINI</span></div></div>"
+    )
 
 
 def minify_css(css: str) -> str:
@@ -199,10 +291,11 @@ def results_html(idea: str, pitch: dict) -> str:
     cards = []
     for i, (key, title, _) in enumerate(SECTIONS, start=1):
         label = title.split(". ", 1)[1].upper()
+        short = FEATURES[i - 1][0]
         accent = " accent" if i == len(SECTIONS) else ""
         cards.append(
             f'<div class="card{accent}"><div class="card-head">'
-            f'<span class="idx">[{i:02d}]</span>{escape(label)}</div>'
+            f'<span class="idx">{escape(short.upper())}</span>{escape(label)}</div>'
             f'<div class="card-body">{body_to_html(pitch[key])}</div></div>'
         )
     name = escape(str(pitch.get("startup_name", "Your Startup")))
@@ -388,23 +481,24 @@ def main():
                     except Exception as exc:
                         st.error(f"Generation failed: {exc}")
 
+        st.markdown(EXAMPLES_HTML, unsafe_allow_html=True)
+
     with right:
         st.markdown(blueprint_html(), unsafe_allow_html=True)
 
     pitch = st.session_state.get("pitch")
-    if not pitch:
-        return
+    if pitch:
+        saved_idea = st.session_state.get("idea", "")
+        st.markdown(results_html(saved_idea, pitch), unsafe_allow_html=True)
+        st.download_button(
+            label="Download pitch (.txt)",
+            data=build_text_export(saved_idea, pitch),
+            file_name=safe_filename(pitch.get("startup_name", "pitch")),
+            mime="text/plain",
+        )
+        st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
 
-    saved_idea = st.session_state.get("idea", "")
-    st.markdown(results_html(saved_idea, pitch), unsafe_allow_html=True)
-
-    st.download_button(
-        label="Download pitch (.txt)",
-        data=build_text_export(saved_idea, pitch),
-        file_name=safe_filename(pitch.get("startup_name", "pitch")),
-        mime="text/plain",
-    )
-    st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
+    st.markdown(features_html() + faq_html() + footer_html(), unsafe_allow_html=True)
 
 
 main()
