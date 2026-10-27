@@ -10,8 +10,10 @@ import streamlit as st
 from google import genai
 from google.genai import errors, types
 
-# Tried in order. If the first is overloaded, the app falls back to the next.
-MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+# Tried in order. If one is overloaded (503) or retired (404), the app moves to the next.
+# Google renames/retires models often. To switch models without touching this code, add
+# GEMINI_MODEL = "model-name" to your Streamlit Secrets; it is tried first.
+DEFAULT_MODEL_CHAIN = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-3.5-flash-lite"]
 RETRYABLE_CODES = {429, 500, 502, 503, 504}
 ATTEMPTS_PER_MODEL = 3
 BASE_DELAY_SECONDS = 2
@@ -63,6 +65,18 @@ def get_client(api_key: str):
     return genai.Client(api_key=api_key)
 
 
+def get_model_chain():
+    chain = list(DEFAULT_MODEL_CHAIN)
+    override = None
+    try:
+        override = st.secrets.get("GEMINI_MODEL")
+    except Exception:
+        override = os.environ.get("GEMINI_MODEL")
+    if override and str(override).strip():
+        chain = [str(override).strip()] + [m for m in chain if m != str(override).strip()]
+    return chain
+
+
 def _clean_json(text: str) -> dict:
     text = (text or "").strip()
     if text.startswith("```"):
@@ -77,7 +91,6 @@ def _request_pitch(client, model: str, idea: str) -> dict:
         contents=PROMPT_TEMPLATE.format(idea=idea),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            temperature=0.8,
         ),
     )
     data = _clean_json(response.text)
@@ -92,7 +105,7 @@ def _request_pitch(client, model: str, idea: str) -> dict:
 def generate_pitch(client, idea: str) -> dict:
     """Call Gemini with retries on overload (503/429) and fall back to other models."""
     last_error = None
-    for model in MODEL_CHAIN:
+    for model in get_model_chain():
         for attempt in range(ATTEMPTS_PER_MODEL):
             try:
                 return _request_pitch(client, model, idea)
@@ -173,6 +186,13 @@ def main():
                         st.warning(
                             "Gemini is very busy right now (this is on Google's side, not "
                             "a problem with your app). Please wait a minute and try again."
+                        )
+                    elif getattr(exc, "code", None) == 404:
+                        st.error(
+                            "None of the configured Gemini models are available. Google may "
+                            "have renamed them. Add GEMINI_MODEL = \"gemini-3.5-flash\" (or a "
+                            "current model from ai.google.dev/gemini-api/docs/models) to "
+                            "your Streamlit Secrets."
                         )
                     else:
                         st.error(f"Generation failed: {exc}")
