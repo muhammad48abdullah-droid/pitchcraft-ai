@@ -65,7 +65,7 @@ CSS = """
 .block-container { max-width:1180px; padding:0 2rem 4rem 2rem !important; }
 .stApp p, .stApp li, .stApp label, .stApp span, .stApp div { font-family:'Space Mono', monospace; }
 
-.nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:1.5rem 2rem; margin:0 -2rem 3rem -2rem; border-bottom:1px solid var(--line); }
+.nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:1.5rem 2rem; margin:0 -2rem 3rem -2rem;  }
 .nav-l { display:flex; gap:1.6rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
 .nav-c { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; text-align:center; font-size:1.9rem; line-height:1.05; letter-spacing:.05em; text-transform:uppercase; }
 .nav-c span { display:block; font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.25rem; color:#d6d6ff; }
