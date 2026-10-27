@@ -1,89 +1,208 @@
+"""PitchCraft AI: turn a one-sentence business idea into a 5-section pitch deck with Gemini."""
+
+import json
 import os
+import re
+import time
+from datetime import datetime
+
 import streamlit as st
 from google import genai
+from google.genai import errors, types
 
-# -----------------------------------------------------------------------------
-# 1. Page Configuration
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="PitchCraft AI - Startup Pitch Deck Generator",
-    page_icon="🚀",
-    layout="centered"
-)
+# Tried in order. If the first is overloaded, the app falls back to the next.
+MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+RETRYABLE_CODES = {429, 500, 502, 503, 504}
+ATTEMPTS_PER_MODEL = 3
+BASE_DELAY_SECONDS = 2
+MAX_IDEA_CHARS = 300
 
-# -----------------------------------------------------------------------------
-# 2. API Key Setup
-# -----------------------------------------------------------------------------
-api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+SECTIONS = [
+    ("problem_statement", "1. Problem Statement", "🎯"),
+    ("unique_solution", "2. Unique Solution", "💡"),
+    ("target_market_analysis", "3. Target Market Analysis", "📊"),
+    ("monetization_revenue_model", "4. Monetization & Revenue Model", "💰"),
+    ("tagline_and_slogan", "5. Catchy Tagline & Marketing Slogan", "🚀"),
+]
 
-if not api_key:
-    st.error("⚠️ GEMINI_API_KEY not found! Please add it to Streamlit Secrets or environment variables.")
-    st.stop()
+PROMPT_TEMPLATE = """You are an experienced startup advisor and pitch-deck writer.
+A founder gave you this rough business idea:
 
-# Initialize Google GenAI Client
-client = genai.Client(api_key=api_key)
+\"\"\"{idea}\"\"\"
 
-# -----------------------------------------------------------------------------
-# 3. UI Layout & Input
-# -----------------------------------------------------------------------------
-st.title("🚀 PitchCraft AI")
-st.write("Turn your rough one-sentence business idea into a professional 5-section startup pitch deck instantly using Google Gemini.")
+Write a professional, specific, investor-ready 5-section pitch. Where the idea
+mentions a place, tailor the content to that local context (population, habits,
+competition, pricing in local currency). Do not invent precise statistics;
+use estimates and label them as estimates.
 
-idea = st.text_input(
-    "Your business idea (one sentence)", 
-    placeholder="e.g., bicycles on rent"
-)
+Respond with ONLY a JSON object (no markdown fences) with exactly these keys:
+{{
+  "startup_name": "a short, memorable name for the startup",
+  "problem_statement": "2-3 short paragraphs or bullet lines on the pain point",
+  "unique_solution": "what the product is, how it works, and why it is better than alternatives",
+  "target_market_analysis": "customer segments, estimated market size, and key competitors",
+  "monetization_revenue_model": "revenue streams, pricing ideas, and cost/margin notes",
+  "tagline_and_slogan": "one catchy tagline on the first line, then 2 alternative marketing slogans"
+}}
+Every value must be a plain string. Use "- " for bullet points and no markdown headings."""
 
-# -----------------------------------------------------------------------------
-# 4. Generation & Gemini API Integration
-# -----------------------------------------------------------------------------
-if st.button("✨ Generate Pitch Deck", type="primary"):
-    if not idea.strip():
-        st.warning("⚠️ Please enter a business idea first!")
-    else:
-        with st.spinner("Crafting your professional pitch deck..."):
-            try:
-                prompt = f"""
-                You are an expert startup venture capitalist and pitch deck consultant. 
-                Based on the following rough business idea: "{idea}"
-                
-                Generate a professional 5-section startup pitch deck with clear headings:
-                1. Problem Statement
-                2. Unique Solution
-                3. Target Market Analysis
-                4. Monetization & Revenue Model
-                5. Catchy Tagline & Marketing Slogan
-                
-                Keep the tone professional, structured, and compelling. Use markdown formatting.
-                """
-                
-                # Using gemini-3.8-flash as recommended by the API
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=prompt
-                )
-                
-                # Save to session state so it persists on UI interactions
-                st.session_state["pitch_text"] = response.text
-                st.session_state["pitch_idea"] = idea
-                
-            except Exception as e:
-                st.error(f"Generation failed: {str(e)}")
 
-# -----------------------------------------------------------------------------
-# 5. Display Results & Download Button
-# -----------------------------------------------------------------------------
-if "pitch_text" in st.session_state:
-    st.markdown("---")
-    st.subheader("📋 Your Generated Pitch Deck")
-    st.markdown(st.session_state["pitch_text"])
-    
-    # Clean filename for download
-    safe_filename = "".join(c if c.isalnum() else "_" for c in st.session_state["pitch_idea"][:25]).strip("_")
-    
-    st.download_button(
-        label="📥 Download Pitch Deck as Text File",
-        data=st.session_state["pitch_text"],
-        file_name=f"pitch_deck_{safe_filename}.txt",
-        mime="text/plain"
+def get_api_key():
+    """Read the key from Streamlit secrets, falling back to an environment variable."""
+    try:
+        key = st.secrets["GEMINI_API_KEY"]
+        if key:
+            return str(key)
+    except Exception:
+        pass
+    return os.environ.get("GEMINI_API_KEY")
+
+
+@st.cache_resource
+def get_client(api_key: str):
+    return genai.Client(api_key=api_key)
+
+
+def _clean_json(text: str) -> dict:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text).strip()
+        text = re.sub(r"```$", "", text).strip()
+    return json.loads(text)
+
+
+def _request_pitch(client, model: str, idea: str) -> dict:
+    response = client.models.generate_content(
+        model=model,
+        contents=PROMPT_TEMPLATE.format(idea=idea),
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            temperature=0.8,
+        ),
     )
+    data = _clean_json(response.text)
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected response format")
+    missing = [k for k, _, _ in SECTIONS if not data.get(k)]
+    if missing:
+        raise ValueError(f"Response was missing sections: {', '.join(missing)}")
+    return data
+
+
+def generate_pitch(client, idea: str) -> dict:
+    """Call Gemini with retries on overload (503/429) and fall back to other models."""
+    last_error = None
+    for model in MODEL_CHAIN:
+        for attempt in range(ATTEMPTS_PER_MODEL):
+            try:
+                return _request_pitch(client, model, idea)
+            except errors.APIError as exc:
+                last_error = exc
+                code = getattr(exc, "code", None)
+                if code == 404:
+                    break  # this model name isn't available; try the next one
+                if code not in RETRYABLE_CODES:
+                    raise  # e.g. 400 bad request / 403 bad key: retrying won't help
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc  # malformed output: just ask again
+            if attempt < ATTEMPTS_PER_MODEL - 1:
+                time.sleep(BASE_DELAY_SECONDS * (2 ** attempt))  # 2s, 4s
+    raise last_error
+
+
+def as_text(value) -> str:
+    """Gemini occasionally returns a list instead of a string; normalise it."""
+    if isinstance(value, list):
+        return "\n".join(f"- {item}" for item in value)
+    return str(value).strip()
+
+
+def build_text_export(idea: str, pitch: dict) -> str:
+    name = pitch.get("startup_name", "Your Startup")
+    lines = [
+        "=" * 60,
+        f"PITCHCRAFT AI - PITCH DECK: {name}",
+        "=" * 60,
+        f"Original idea: {idea}",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+    ]
+    for key, title, _ in SECTIONS:
+        lines += [title.upper(), "-" * len(title), as_text(pitch[key]), ""]
+    lines.append("Generated by PitchCraft AI. AI output is a starting point; verify all figures.")
+    return "\n".join(lines)
+
+
+def safe_filename(name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
+    return f"{slug or 'pitch'}_pitch_deck.txt"
+
+
+def main():
+    st.set_page_config(page_title="PitchCraft AI", page_icon="🚀", layout="centered")
+    st.title("🚀 PitchCraft AI")
+    st.caption("Turn a rough business idea into a 5-section startup pitch deck in seconds.")
+
+    api_key = get_api_key()
+    if not api_key:
+        st.error(
+            "GEMINI_API_KEY is not set. Add it in Streamlit Cloud → App settings → Secrets, "
+            "or in .streamlit/secrets.toml when running locally."
+        )
+        st.stop()
+    client = get_client(api_key)
+
+    idea = st.text_input(
+        "Your business idea (one sentence)",
+        placeholder="An app for renting bicycles in Lahore",
+        max_chars=MAX_IDEA_CHARS,
+    )
+
+    if st.button("✨ Generate Pitch Deck", type="primary", use_container_width=True):
+        idea = idea.strip()
+        if len(idea) < 8:
+            st.warning("Please enter a business idea of at least a few words.")
+        else:
+            with st.spinner("Crafting your pitch..."):
+                try:
+                    pitch = generate_pitch(client, idea)
+                    st.session_state["pitch"] = pitch
+                    st.session_state["idea"] = idea
+                except errors.APIError as exc:
+                    if getattr(exc, "code", None) in RETRYABLE_CODES:
+                        st.warning(
+                            "Gemini is very busy right now (this is on Google's side, not "
+                            "a problem with your app). Please wait a minute and try again."
+                        )
+                    else:
+                        st.error(f"Generation failed: {exc}")
+                except (json.JSONDecodeError, ValueError):
+                    st.error("Gemini returned an unexpected response. Please try again.")
+                except Exception as exc:
+                    st.error(f"Generation failed: {exc}")
+
+    pitch = st.session_state.get("pitch")
+    if not pitch:
+        return
+
+    saved_idea = st.session_state.get("idea", "")
+    st.divider()
+    st.header(pitch.get("startup_name", "Your Startup"))
+    st.caption(f"Idea: {saved_idea}")
+
+    for key, title, icon in SECTIONS:
+        with st.container(border=True):
+            st.subheader(f"{icon} {title}")
+            st.markdown(as_text(pitch[key]))
+
+    st.download_button(
+        label="⬇️ Download Pitch (.txt)",
+        data=build_text_export(saved_idea, pitch),
+        file_name=safe_filename(pitch.get("startup_name", "pitch")),
+        mime="text/plain",
+        use_container_width=True,
+    )
+    st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
+
+
+main()
