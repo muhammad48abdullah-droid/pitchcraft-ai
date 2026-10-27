@@ -57,9 +57,9 @@ if st.button("✨ Generate Pitch Deck", type="primary"):
                 Keep the tone professional, structured, and compelling. Use markdown formatting.
                 """
                 
-                # Updated model name to gemini-3.8-flash
+                # Switched to gemini-1.5-flash for high stability and availability
                 response = client.models.generate_content(
-                    model="gemini-3.8-flash",
+                    model="gemini-1.5-flash",
                     contents=prompt
                 )
                 
