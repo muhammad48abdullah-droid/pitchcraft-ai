@@ -58,19 +58,19 @@ Every value must be a plain string. Use "- " for bullet points and no markdown h
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Mono:wght@400;700&display=swap');
 :root { --blue:#0000F2; --line:rgba(255,255,255,.30); --dim:rgba(255,255,255,.78); }
-#MainMenu, footer, header, .stAppHeader, .stApp > header, [data-testid="stHeader"], [data-testid="stAppHeader"], [data-testid="stToolbar"], [data-testid="stAppToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; visibility:hidden !important; height:0 !important; min-height:0 !important; border:0 !important; box-shadow:none !important; background:transparent !important; } [data-testid="stAppViewContainer"], [data-testid="stMain"], section.main, .stApp { background-color:var(--blue) !important; border-top:0 !important; } [data-testid="stMainBlockContainer"], .block-container { padding-top:0 !important; }
+#MainMenu, footer, header, .stAppHeader, .stApp > header, [data-testid="stHeader"], [data-testid="stAppHeader"], [data-testid="stToolbar"], [data-testid="stAppToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display:none !important; visibility:hidden !important; height:0 !important; min-height:0 !important; border:0 !important; box-shadow:none !important; background:transparent !important; } [data-testid="stAppViewContainer"], [data-testid="stMain"], section.main { background:transparent !important; border-top:0 !important; box-shadow:none !important; } [data-testid="stMainBlockContainer"], .block-container { padding-top:0 !important; }
 .stApp { background-color:var(--blue);
   background-image:linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
   background-size:40px 40px; color:#fff; font-family:'Space Mono', monospace; }
 .block-container { max-width:1180px; padding:0 2rem 4rem 2rem !important; }
 .stApp p, .stApp li, .stApp label, .stApp span, .stApp div { font-family:'Space Mono', monospace; }
 
-.nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:1.5rem 2rem; margin:0 -2rem 3rem -2rem;  }
+.nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:1.5rem 2rem; margin:0 -2rem 3rem -2rem; border-bottom:1px solid var(--line); }
 .nav-l { display:flex; gap:1.6rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
 .nav-c { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; text-align:center; font-size:1.9rem; line-height:1.05; letter-spacing:.05em; text-transform:uppercase; }
 .nav-c span { display:block; font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.25rem; color:#d6d6ff; }
 .nav-r { display:flex; justify-content:flex-end; }
-.nav-btn { background:#fff; color:var(--blue); padding:.7rem 1.1rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; box-shadow:3px 3px 0 rgba(0,0,0,.35); }
+.nav-btn { background:#fff; color:var(--blue); padding:.7rem 1.1rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; box-shadow:3px 3px 0 rgba(255,255,255,.35); }
 
 .tag { display:inline-block; border:1px solid var(--line); background:rgba(255,255,255,.12); padding:.4rem .75rem; font-size:.7rem; font-weight:700; letter-spacing:.1em; margin-bottom:1.3rem; }
 .hero-title { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:clamp(3.2rem, 7vw, 5.8rem); line-height:.98; text-transform:uppercase; margin:0 0 1.5rem 0; color:#fff; }
@@ -86,12 +86,12 @@ div[data-testid="stTextInputRootElement"] { border-radius:0 !important; }
 div[data-testid="InputInstructions"], div[data-testid="InputInstructions"] * { color:var(--dim) !important; }
 
 div[data-testid="stButton"], div[data-testid="stDownloadButton"] { width:100%; }
-div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button { width:100%; background:#fff !important; color:var(--blue) !important; border:1px solid #fff !important; border-radius:0 !important; padding:.75rem 1.2rem; box-shadow:4px 4px 0 rgba(0,0,0,.4); transition:transform .1s, box-shadow .1s; }
+div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button { width:100%; background:#fff !important; color:var(--blue) !important; border:1px solid #fff !important; border-radius:0 !important; padding:.75rem 1.2rem; box-shadow:4px 4px 0 rgba(255,255,255,.35); transition:transform .1s, box-shadow .1s; }
 div[data-testid="stButton"] button p, div[data-testid="stDownloadButton"] button p { color:var(--blue) !important; font-family:'Space Mono', monospace !important; font-weight:700 !important; text-transform:uppercase; letter-spacing:.08em; }
-div[data-testid="stButton"] button:hover, div[data-testid="stDownloadButton"] button:hover { transform:translate(2px,2px); box-shadow:2px 2px 0 rgba(0,0,0,.4); background:#fff !important; border-color:#fff !important; }
-div[data-testid="stButton"] button:active, div[data-testid="stDownloadButton"] button:active { transform:translate(4px,4px); box-shadow:0 0 0 rgba(0,0,0,.4); }
+div[data-testid="stButton"] button:hover, div[data-testid="stDownloadButton"] button:hover { transform:translate(2px,2px); box-shadow:2px 2px 0 rgba(255,255,255,.35); background:#fff !important; border-color:#fff !important; }
+div[data-testid="stButton"] button:active, div[data-testid="stDownloadButton"] button:active { transform:translate(4px,4px); box-shadow:0 0 0 rgba(255,255,255,.35); }
 
-div[data-testid="stAlert"] { background:rgba(0,0,0,.30) !important; border:1px solid #fff !important; border-radius:0 !important; }
+div[data-testid="stAlert"] { background:rgba(255,255,255,.14) !important; border:1px solid #fff !important; border-radius:0 !important; }
 div[data-testid="stAlert"] * { color:#fff !important; }
 div[data-testid="stSpinner"], div[data-testid="stSpinner"] * { color:#fff !important; }
 div[data-testid="stCaptionContainer"], div[data-testid="stCaptionContainer"] * { color:var(--dim) !important; }
@@ -110,8 +110,15 @@ div[data-testid="stCaptionContainer"], div[data-testid="stCaptionContainer"] * {
 .card-body p { margin:0 0 .7rem 0; }
 .card-body ul { margin:0 0 .7rem 0; padding-left:1.2rem; }
 .card-body li { margin-bottom:.35rem; }
-.card.accent { grid-column:1 / -1; background:#fff; color:var(--blue); box-shadow:6px 6px 0 rgba(0,0,0,.35); }
+.card.accent { grid-column:1 / -1; background:#fff; color:var(--blue); box-shadow:6px 6px 0 rgba(255,255,255,.35); }
 .card.accent .card-head, .card.accent .card-head .idx, .card.accent .card-body, .card.accent .card-body * { color:var(--blue) !important; }
+
+html:focus, body:focus, *:focus, *:focus-visible { outline:none !important; }
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], section.main { outline:0 !important; -webkit-tap-highlight-color:transparent; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline:2px solid #fff !important; outline-offset:3px !important; }
+
+div:focus, div:focus-visible, section:focus, section:focus-visible, main:focus, main:focus-visible, header:focus, [tabindex]:focus-visible:not(input):not(textarea):not(button):not(a):not(summary) { outline:none !important; box-shadow:none !important; }
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stMainBlockContainer"], section.main, .block-container, [data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"], [data-testid="stElementContainer"], [data-testid="stMarkdownContainer"] { outline:none !important; border-top:0 !important; border-left:0 !important; }
 
 .nav a { color:#fff !important; text-decoration:none !important; }
 .nav a:hover { opacity:.75; }
