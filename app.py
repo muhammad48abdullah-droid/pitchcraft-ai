@@ -31,7 +31,7 @@ st.write("Turn your rough one-sentence business idea into a professional 5-secti
 
 idea = st.text_input(
     "Your business idea (one sentence)", 
-    placeholder="e.g., A cookies branch in Peshawar"
+    placeholder="e.g., bicycles on rent"
 )
 
 # -----------------------------------------------------------------------------
@@ -57,9 +57,9 @@ if st.button("✨ Generate Pitch Deck", type="primary"):
                 Keep the tone professional, structured, and compelling. Use markdown formatting.
                 """
                 
-                # Switched to gemini-1.5-flash for high stability and availability
+                # Using gemini-3.8-flash as recommended by the API
                 response = client.models.generate_content(
-                    model="gemini-1.5-flash",
+                    model="gemini-3.8-flash",
                     contents=prompt
                 )
                 
