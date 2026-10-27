@@ -1,10 +1,13 @@
 """PitchCraft AI: turn a one-sentence business idea into a 5-section pitch deck with Gemini."""
 
+import base64
 import json
+import math
 import os
 import re
 import time
 from datetime import datetime
+from html import escape
 
 import streamlit as st
 from google import genai
@@ -47,6 +50,175 @@ Respond with ONLY a JSON object (no markdown fences) with exactly these keys:
   "tagline_and_slogan": "one catchy tagline on the first line, then 2 alternative marketing slogans"
 }}
 Every value must be a plain string. Use "- " for bullet points and no markdown headings."""
+
+# --------------------------------------------------------------------------------------
+# Styling (blueprint / electric-blue look)
+# --------------------------------------------------------------------------------------
+
+CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Space+Mono:wght@400;700&display=swap');
+:root { --blue:#0500EB; --line:rgba(255,255,255,.30); --dim:rgba(255,255,255,.78); }
+#MainMenu, footer, header[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] { display:none !important; }
+.stApp { background-color:var(--blue);
+  background-image:linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px);
+  background-size:40px 40px; color:#fff; font-family:'Space Mono', monospace; }
+.block-container { max-width:1180px; padding:0 2rem 4rem 2rem !important; }
+.stApp p, .stApp li, .stApp label, .stApp span, .stApp div { font-family:'Space Mono', monospace; }
+
+.nav { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; padding:1.5rem 2rem; margin:0 -2rem 3rem -2rem; border-bottom:1px solid var(--line); }
+.nav-l { display:flex; gap:1.6rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; }
+.nav-c { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; text-align:center; font-size:1.9rem; line-height:1.05; letter-spacing:.05em; text-transform:uppercase; }
+.nav-c span { display:block; font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.25rem; color:#d6d6ff; }
+.nav-r { display:flex; justify-content:flex-end; }
+.nav-btn { background:#fff; color:var(--blue); padding:.7rem 1.1rem; font-size:.78rem; font-weight:700; letter-spacing:.08em; box-shadow:3px 3px 0 rgba(0,0,0,.35); }
+
+.tag { display:inline-block; border:1px solid var(--line); background:rgba(255,255,255,.12); padding:.4rem .75rem; font-size:.7rem; font-weight:700; letter-spacing:.1em; margin-bottom:1.3rem; }
+.hero-title { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:clamp(3.2rem, 7vw, 5.8rem); line-height:.98; text-transform:uppercase; margin:0 0 1.5rem 0; color:#fff; }
+.hero-sub { border-left:1px solid rgba(255,255,255,.6); padding-left:1rem; color:#d8d8ff; font-size:1rem; line-height:1.6; max-width:30rem; margin-bottom:2.2rem; }
+
+div[data-testid="stTextInput"] label p { text-transform:uppercase; letter-spacing:.1em; font-size:.75rem !important; font-weight:700; color:#fff !important; }
+div[data-baseweb="input"], div[data-baseweb="base-input"] { background:rgba(0,0,0,.18) !important; border-radius:0 !important; }
+div[data-baseweb="input"] { border:1px solid rgba(255,255,255,.65) !important; }
+div[data-baseweb="input"]:focus-within { border-color:#fff !important; box-shadow:0 0 0 1px #fff !important; }
+div[data-baseweb="input"] input { background:transparent !important; color:#fff !important; -webkit-text-fill-color:#fff !important; font-family:'Space Mono', monospace !important; }
+div[data-baseweb="input"] input::placeholder { color:rgba(255,255,255,.55) !important; -webkit-text-fill-color:rgba(255,255,255,.55) !important; }
+div[data-testid="stTextInputRootElement"] { border-radius:0 !important; }
+div[data-testid="InputInstructions"], div[data-testid="InputInstructions"] * { color:var(--dim) !important; }
+
+div[data-testid="stButton"], div[data-testid="stDownloadButton"] { width:100%; }
+div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button { width:100%; background:#fff !important; color:var(--blue) !important; border:1px solid #fff !important; border-radius:0 !important; padding:.75rem 1.2rem; box-shadow:4px 4px 0 rgba(0,0,0,.4); transition:transform .1s, box-shadow .1s; }
+div[data-testid="stButton"] button p, div[data-testid="stDownloadButton"] button p { color:var(--blue) !important; font-family:'Space Mono', monospace !important; font-weight:700 !important; text-transform:uppercase; letter-spacing:.08em; }
+div[data-testid="stButton"] button:hover, div[data-testid="stDownloadButton"] button:hover { transform:translate(2px,2px); box-shadow:2px 2px 0 rgba(0,0,0,.4); background:#fff !important; border-color:#fff !important; }
+div[data-testid="stButton"] button:active, div[data-testid="stDownloadButton"] button:active { transform:translate(4px,4px); box-shadow:0 0 0 rgba(0,0,0,.4); }
+
+div[data-testid="stAlert"] { background:rgba(0,0,0,.30) !important; border:1px solid #fff !important; border-radius:0 !important; }
+div[data-testid="stAlert"] * { color:#fff !important; }
+div[data-testid="stSpinner"], div[data-testid="stSpinner"] * { color:#fff !important; }
+div[data-testid="stCaptionContainer"], div[data-testid="stCaptionContainer"] * { color:var(--dim) !important; }
+
+.blueprint { border:1px solid var(--line); padding:1rem; background:rgba(0,0,0,.08); }
+.blueprint img { width:100%; display:block; }
+
+.result-wrap { margin-top:3.5rem; border-top:1px solid var(--line); padding-top:2.5rem; }
+.startup-name { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:clamp(2.6rem, 6vw, 4.8rem); line-height:1; text-transform:uppercase; margin:.2rem 0 .8rem 0; }
+.idea-line { border-left:1px solid rgba(255,255,255,.6); padding-left:1rem; color:#d8d8ff; margin-bottom:2rem; }
+.cards { display:grid; grid-template-columns:repeat(2, 1fr); gap:1.3rem; margin-bottom:2rem; }
+.card { border:1px solid var(--line); background:rgba(0,0,0,.16); padding:1.3rem 1.5rem; }
+.card-head { font-family:'Anton', Impact, 'Arial Narrow', sans-serif !important; font-size:1.6rem; text-transform:uppercase; letter-spacing:.03em; line-height:1.1; margin-bottom:.9rem; }
+.card-head .idx { font-family:'Space Mono', monospace !important; font-size:.75rem; font-weight:700; letter-spacing:.1em; display:block; color:#cfcfff; margin-bottom:.35rem; }
+.card-body { font-size:.92rem; line-height:1.65; }
+.card-body p { margin:0 0 .7rem 0; }
+.card-body ul { margin:0 0 .7rem 0; padding-left:1.2rem; }
+.card-body li { margin-bottom:.35rem; }
+.card.accent { grid-column:1 / -1; background:#fff; color:var(--blue); box-shadow:6px 6px 0 rgba(0,0,0,.35); }
+.card.accent .card-head, .card.accent .card-head .idx, .card.accent .card-body, .card.accent .card-body * { color:var(--blue) !important; }
+
+@media (max-width:720px) { .nav { grid-template-columns:1fr; } .nav-l, .nav-r { display:none; } .cards { grid-template-columns:1fr; } }
+"""
+
+NAV_HTML = (
+    '<div class="nav">'
+    '<div class="nav-l"><span>IDEA → PITCH</span><span>EXPORT .TXT</span></div>'
+    '<div class="nav-c">PITCHCRAFT<span>AI</span></div>'
+    '<div class="nav-r"><span class="nav-btn">POWERED BY GEMINI</span></div>'
+    "</div>"
+)
+
+HERO_HTML = (
+    '<div class="tag">PITCHCRAFT AI // STARTUP PITCH GENERATOR</div>'
+    '<div class="hero-title">One line.<br>Full pitch<br>deck.</div>'
+    '<div class="hero-sub">Describe your idea in a single sentence. Gemini drafts the problem, '
+    "solution, market, revenue model and tagline for you.</div>"
+)
+
+
+def minify_css(css: str) -> str:
+    """Collapse to one line: a blank line would end Streamlit's HTML block mid-stylesheet."""
+    return re.sub(r"\s+", " ", css).strip()
+
+
+def inject_css():
+    st.markdown("<style>" + minify_css(CSS) + "</style>", unsafe_allow_html=True)
+
+
+def blueprint_html() -> str:
+    cx = cy = 200
+    rays = "".join(
+        f'<line x1="{cx}" y1="{cy}" '
+        f'x2="{cx + 185 * math.cos(math.radians(i * 22.5)):.1f}" '
+        f'y2="{cy + 185 * math.sin(math.radians(i * 22.5)):.1f}" opacity="0.35"/>'
+        for i in range(16)
+    )
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none" '
+        'stroke="#ffffff" stroke-width="1">'
+        '<rect x="10" y="10" width="380" height="380" opacity="0.5"/>'
+        f"{rays}"
+        '<circle cx="200" cy="200" r="150" stroke-dasharray="2 5" opacity="0.8"/>'
+        '<circle cx="200" cy="200" r="105"/>'
+        '<circle cx="200" cy="200" r="62" stroke-dasharray="4 4"/>'
+        '<circle cx="200" cy="200" r="30"/>'
+        '<polygon points="200,150 214,186 252,186 221,208 232,246 200,224 168,246 179,208 148,186 186,186" opacity="0.9"/>'
+        '<text x="26" y="36" fill="#ffffff" stroke="none" font-family="monospace" font-size="10" opacity="0.75">MODEL: GEMINI</text>'
+        '<text x="374" y="36" fill="#ffffff" stroke="none" font-family="monospace" font-size="10" opacity="0.75" text-anchor="end">[PITCHCRAFT-V1.0]</text>'
+        '<text x="26" y="378" fill="#ffffff" stroke="none" font-family="monospace" font-size="10" opacity="0.75">IDEA → PROBLEM → SOLUTION → MARKET → REVENUE → TAGLINE</text>'
+        "</svg>"
+    )
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f'<div class="blueprint"><img alt="" src="data:image/svg+xml;base64,{b64}"/></div>'
+
+
+def inline_format(text: str) -> str:
+    """Escape, then turn **bold** into <strong>."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escape(text))
+
+
+def body_to_html(text: str) -> str:
+    """Convert Gemini's plain text (paragraphs and '- ' bullets) into safe HTML."""
+    out, in_list = [], False
+    for raw in as_text(text).splitlines():
+        line = re.sub(r"^#+\s*", "", raw.strip())
+        if not line:
+            continue
+        if line[:2] in ("- ", "* ", "• "):
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{inline_format(line[2:].strip())}</li>")
+        else:
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            out.append(f"<p>{inline_format(line)}</p>")
+    if in_list:
+        out.append("</ul>")
+    return "".join(out)
+
+
+def results_html(idea: str, pitch: dict) -> str:
+    cards = []
+    for i, (key, title, _) in enumerate(SECTIONS, start=1):
+        label = title.split(". ", 1)[1].upper()
+        accent = " accent" if i == len(SECTIONS) else ""
+        cards.append(
+            f'<div class="card{accent}"><div class="card-head">'
+            f'<span class="idx">[{i:02d}]</span>{escape(label)}</div>'
+            f'<div class="card-body">{body_to_html(pitch[key])}</div></div>'
+        )
+    name = escape(str(pitch.get("startup_name", "Your Startup")))
+    return (
+        '<div class="result-wrap">'
+        '<div class="tag">GENERATED PITCH // 5 SECTIONS</div>'
+        f'<div class="startup-name">{name}</div>'
+        f'<div class="idea-line">IDEA: {escape(idea)}</div>'
+        f'<div class="cards">{"".join(cards)}</div>'
+        "</div>"
+    )
+
+
+# --------------------------------------------------------------------------------------
+# Gemini
+# --------------------------------------------------------------------------------------
 
 
 def get_api_key():
@@ -119,7 +291,7 @@ def generate_pitch(client, idea: str) -> dict:
             except (json.JSONDecodeError, ValueError) as exc:
                 last_error = exc  # malformed output: just ask again
             if attempt < ATTEMPTS_PER_MODEL - 1:
-                time.sleep(BASE_DELAY_SECONDS * (2 ** attempt))  # 2s, 4s
+                time.sleep(BASE_DELAY_SECONDS * (2**attempt))  # 2s, 4s
     raise last_error
 
 
@@ -151,10 +323,20 @@ def safe_filename(name: str) -> str:
     return f"{slug or 'pitch'}_pitch_deck.txt"
 
 
+# --------------------------------------------------------------------------------------
+# App
+# --------------------------------------------------------------------------------------
+
+
 def main():
-    st.set_page_config(page_title="PitchCraft AI", page_icon="🚀", layout="centered")
-    st.title("🚀 PitchCraft AI")
-    st.caption("Turn a rough business idea into a 5-section startup pitch deck in seconds.")
+    st.set_page_config(
+        page_title="PitchCraft AI",
+        page_icon="🚀",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    inject_css()
+    st.markdown(NAV_HTML, unsafe_allow_html=True)
 
     api_key = get_api_key()
     if not api_key:
@@ -165,62 +347,62 @@ def main():
         st.stop()
     client = get_client(api_key)
 
-    idea = st.text_input(
-        "Your business idea (one sentence)",
-        placeholder="An app for renting bicycles in Lahore",
-        max_chars=MAX_IDEA_CHARS,
-    )
+    left, right = st.columns([1.15, 1], gap="large")
 
-    if st.button("✨ Generate Pitch Deck", type="primary", use_container_width=True):
-        idea = idea.strip()
-        if len(idea) < 8:
-            st.warning("Please enter a business idea of at least a few words.")
-        else:
-            with st.spinner("Crafting your pitch..."):
-                try:
-                    pitch = generate_pitch(client, idea)
-                    st.session_state["pitch"] = pitch
-                    st.session_state["idea"] = idea
-                except errors.APIError as exc:
-                    if getattr(exc, "code", None) in RETRYABLE_CODES:
-                        st.warning(
-                            "Gemini is very busy right now (this is on Google's side, not "
-                            "a problem with your app). Please wait a minute and try again."
-                        )
-                    elif getattr(exc, "code", None) == 404:
-                        st.error(
-                            "None of the configured Gemini models are available. Google may "
-                            "have renamed them. Add GEMINI_MODEL = \"gemini-3.5-flash\" (or a "
-                            "current model from ai.google.dev/gemini-api/docs/models) to "
-                            "your Streamlit Secrets."
-                        )
-                    else:
+    with left:
+        st.markdown(HERO_HTML, unsafe_allow_html=True)
+        idea = st.text_input(
+            "Your business idea (one sentence)",
+            placeholder="An app for renting bicycles in Lahore",
+            max_chars=MAX_IDEA_CHARS,
+        )
+        clicked = st.button("Generate pitch deck →", type="primary")
+
+        if clicked:
+            idea = idea.strip()
+            if len(idea) < 8:
+                st.warning("Please enter a business idea of at least a few words.")
+            else:
+                with st.spinner("Crafting your pitch..."):
+                    try:
+                        st.session_state["pitch"] = generate_pitch(client, idea)
+                        st.session_state["idea"] = idea
+                    except errors.APIError as exc:
+                        code = getattr(exc, "code", None)
+                        if code in RETRYABLE_CODES:
+                            st.warning(
+                                "Gemini is very busy right now (this is on Google's side, not "
+                                "a problem with your app). Please wait a minute and try again."
+                            )
+                        elif code == 404:
+                            st.error(
+                                "None of the configured Gemini models are available. Google may "
+                                "have renamed them. Add GEMINI_MODEL = \"gemini-3.5-flash\" (or a "
+                                "current model from ai.google.dev/gemini-api/docs/models) to "
+                                "your Streamlit Secrets."
+                            )
+                        else:
+                            st.error(f"Generation failed: {exc}")
+                    except (json.JSONDecodeError, ValueError):
+                        st.error("Gemini returned an unexpected response. Please try again.")
+                    except Exception as exc:
                         st.error(f"Generation failed: {exc}")
-                except (json.JSONDecodeError, ValueError):
-                    st.error("Gemini returned an unexpected response. Please try again.")
-                except Exception as exc:
-                    st.error(f"Generation failed: {exc}")
+
+    with right:
+        st.markdown(blueprint_html(), unsafe_allow_html=True)
 
     pitch = st.session_state.get("pitch")
     if not pitch:
         return
 
     saved_idea = st.session_state.get("idea", "")
-    st.divider()
-    st.header(pitch.get("startup_name", "Your Startup"))
-    st.caption(f"Idea: {saved_idea}")
-
-    for key, title, icon in SECTIONS:
-        with st.container(border=True):
-            st.subheader(f"{icon} {title}")
-            st.markdown(as_text(pitch[key]))
+    st.markdown(results_html(saved_idea, pitch), unsafe_allow_html=True)
 
     st.download_button(
-        label="⬇️ Download Pitch (.txt)",
+        label="Download pitch (.txt)",
         data=build_text_export(saved_idea, pitch),
         file_name=safe_filename(pitch.get("startup_name", "pitch")),
         mime="text/plain",
-        use_container_width=True,
     )
     st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
 
