@@ -1,6 +1,8 @@
 """PitchCraft AI: turn a one-sentence business idea into a 5-section pitch deck with Gemini."""
 
 import base64
+import hashlib
+import hmac
 import json
 import math
 import os
@@ -9,7 +11,8 @@ import threading
 import time
 from collections import OrderedDict
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from html import escape
 
 import streamlit as st
@@ -26,6 +29,8 @@ BASE_DELAY_SECONDS = 2
 MAX_IDEA_CHARS = 300
 CACHE_TTL_SECONDS = 6 * 60 * 60  # how long a saved pitch is reused
 CACHE_MAX_ENTRIES = 200  # oldest-unused pitches are dropped beyond this
+NEAR_REPEAT_RATIO = 0.85  # how similar two ideas must be to count as a near-repeat
+STATS_MAX_SEEN = 500  # recent ideas remembered (in memory only) to spot near-repeats
 
 SECTIONS = [
     ("problem_statement", "1. Problem Statement", "🎯"),
@@ -206,7 +211,7 @@ FAQS = [
     ("Is my idea saved?",
      "Not in a database. To save time and API quota, the app keeps recent pitches in its memory for a few "
      "hours, so if the same idea is entered again it loads instantly. Nothing is tied to your name, and a "
-     "restart clears it. Your text is sent to Google's Gemini API to generate the pitch, so please avoid "
+     "restart clears it. The app also counts how often saved pitches are reused, without logging your text. Your text is sent to Google's Gemini API to generate the pitch, so please avoid "
      "confidential details."),
     ("Can I get a different version?",
      "Yes. Press Regenerate under the button for a fresh take, or edit the downloaded text file to make it your own."),
@@ -328,15 +333,19 @@ def results_html(idea: str, pitch: dict) -> str:
 # --------------------------------------------------------------------------------------
 
 
-def get_api_key():
-    """Read the key from Streamlit secrets, falling back to an environment variable."""
+def get_secret(name: str):
+    """Read a value from Streamlit secrets, falling back to an environment variable."""
     try:
-        key = st.secrets["GEMINI_API_KEY"]
-        if key:
-            return str(key)
+        value = st.secrets[name]
+        if value:
+            return str(value)
     except Exception:
-        pass
-    return os.environ.get("GEMINI_API_KEY")
+        pass  # no secrets file or key missing
+    return os.environ.get(name)
+
+
+def get_api_key():
+    return get_secret("GEMINI_API_KEY")
 
 
 @st.cache_resource
@@ -455,6 +464,107 @@ def get_pitch(client, cache, idea: str, force_fresh: bool = False):
     return pitch, False
 
 
+class Stats:
+    """Counts cache hits/misses. Keeps counts and an anonymous code per idea, never the idea text."""
+
+    def __init__(self, clock=time.time):
+        self._lock = threading.Lock()
+        self.started_at = clock()
+        self.counts = {"hit": 0, "miss": 0, "regen": 0, "error": 0}
+        self.near_repeat_misses = 0
+        self._seen = []  # normalized ideas, kept in memory only; never displayed or logged
+        self._salt = os.urandom(8).hex()  # changes on restart, so codes can't be reversed by guessing
+
+    def idea_id(self, idea: str) -> str:
+        return hashlib.sha256((self._salt + normalize_idea(idea)).encode("utf-8")).hexdigest()[:8]
+
+    def record(self, event: str, idea: str) -> bool:
+        """Count one request. Returns True if it was a miss that closely resembled an earlier idea."""
+        key = normalize_idea(idea)
+        near = False
+        with self._lock:
+            self.counts[event] = self.counts.get(event, 0) + 1
+            if event == "miss":
+                for other in self._seen:
+                    if other != key:
+                        matcher = SequenceMatcher(None, key, other)
+                        if matcher.quick_ratio() >= NEAR_REPEAT_RATIO and matcher.ratio() >= NEAR_REPEAT_RATIO:
+                            near = True
+                            break
+                if near:
+                    self.near_repeat_misses += 1
+            if event in ("miss", "regen") and key not in self._seen:
+                self._seen.append(key)
+                if len(self._seen) > STATS_MAX_SEEN:
+                    self._seen.pop(0)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"[pitchcraft] {stamp}Z event={event.upper()} idea_id={self.idea_id(idea)} near_repeat={near}",
+            flush=True,
+        )
+        return near
+
+    def summary(self) -> dict:
+        with self._lock:
+            c = dict(self.counts)
+            near = self.near_repeat_misses
+            started = self.started_at
+        served = c["hit"] + c["miss"] + c["regen"]
+        return {
+            "served": served,
+            "hits": c["hit"],
+            "misses": c["miss"],
+            "regens": c["regen"],
+            "errors": c["error"],
+            "near_repeat_misses": near,
+            "hit_rate": (100.0 * c["hit"] / served) if served else 0.0,
+            "since": datetime.fromtimestamp(started, timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+
+
+@st.cache_resource
+def get_stats():
+    return Stats()
+
+
+def tracked_get_pitch(client, cache, stats, idea: str, force_fresh: bool = False):
+    """get_pitch plus counting. Errors are counted, then re-raised for the UI to show."""
+    try:
+        pitch, from_cache = get_pitch(client, cache, idea, force_fresh=force_fresh)
+    except Exception:
+        stats.record("error", idea)
+        raise
+    stats.record("regen" if force_fresh else ("hit" if from_cache else "miss"), idea)
+    return pitch, from_cache
+
+
+def stats_unlocked() -> bool:
+    """The stats panel opens only at ?stats=<STATS_KEY>. With no STATS_KEY secret it stays off."""
+    secret = get_secret("STATS_KEY")
+    if not secret:
+        return False
+    try:
+        provided = str(st.query_params.get("stats", ""))
+    except Exception:
+        return False
+    return bool(provided) and hmac.compare_digest(provided.encode("utf-8"), secret.encode("utf-8"))
+
+
+def stats_html(summary: dict) -> str:
+    lines = [
+        ("requests served", summary["served"]),
+        ("cache hits (Gemini calls saved)", summary["hits"]),
+        ("fresh Gemini calls (misses)", summary["misses"]),
+        ("regenerations", summary["regens"]),
+        ("hit rate", f"{summary['hit_rate']:.0f}%"),
+        ("near-repeat misses", summary["near_repeat_misses"]),
+        ("errors", summary["errors"]),
+        ("counting since", summary["since"] + " (resets when the app restarts)"),
+    ]
+    rows = "".join(f'<div><span class="p">$</span>{escape(k)}: {escape(str(v))}</div>' for k, v in lines)
+    return f'<div class="sec"><div class="sec-title">Stats</div><div class="cmd">{rows}</div></div>'
+
+
 def as_text(value) -> str:
     """Gemini occasionally returns a list instead of a string; normalise it."""
     if isinstance(value, list):
@@ -528,8 +638,8 @@ def main():
             else:
                 with st.spinner("Crafting your pitch..."):
                     try:
-                        pitch_result, from_cache = get_pitch(
-                            client, get_pitch_cache(), idea, force_fresh=regenerate
+                        pitch_result, from_cache = tracked_get_pitch(
+                            client, get_pitch_cache(), get_stats(), idea, force_fresh=regenerate
                         )
                         st.session_state["pitch"] = pitch_result
                         st.session_state["idea"] = idea
@@ -574,6 +684,9 @@ def main():
             mime="text/plain",
         )
         st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
+
+    if stats_unlocked():
+        st.markdown(stats_html(get_stats().summary()), unsafe_allow_html=True)
 
     st.markdown(features_html() + faq_html() + footer_html(), unsafe_allow_html=True)
 
