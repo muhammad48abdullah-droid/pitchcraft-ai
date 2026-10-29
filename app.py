@@ -5,7 +5,10 @@ import json
 import math
 import os
 import re
+import threading
 import time
+from collections import OrderedDict
+from copy import deepcopy
 from datetime import datetime
 from html import escape
 
@@ -21,6 +24,8 @@ RETRYABLE_CODES = {429, 500, 502, 503, 504}
 ATTEMPTS_PER_MODEL = 3
 BASE_DELAY_SECONDS = 2
 MAX_IDEA_CHARS = 300
+CACHE_TTL_SECONDS = 6 * 60 * 60  # how long a saved pitch is reused
+CACHE_MAX_ENTRIES = 200  # oldest-unused pitches are dropped beyond this
 
 SECTIONS = [
     ("problem_statement", "1. Problem Statement", "🎯"),
@@ -199,10 +204,12 @@ FAQS = [
      "No. Figures are AI estimates, not researched data. Treat the pitch as a strong first draft and "
      "verify every number before showing it to investors."),
     ("Is my idea saved?",
-     "The app does not store ideas or pitches in a database. They exist only in your browser session. "
-     "Your text is sent to Google's Gemini API to generate the pitch."),
+     "Not in a database. To save time and API quota, the app keeps recent pitches in its memory for a few "
+     "hours, so if the same idea is entered again it loads instantly. Nothing is tied to your name, and a "
+     "restart clears it. Your text is sent to Google's Gemini API to generate the pitch, so please avoid "
+     "confidential details."),
     ("Can I get a different version?",
-     "Yes. Generate again for a fresh take, or edit the downloaded text file to make it your own."),
+     "Yes. Press Regenerate under the button for a fresh take, or edit the downloaded text file to make it your own."),
 ]
 
 
@@ -395,6 +402,59 @@ def generate_pitch(client, idea: str) -> dict:
     raise last_error
 
 
+def normalize_idea(idea: str) -> str:
+    """Cache key: ignore capitals, extra spaces and trailing punctuation."""
+    return " ".join(idea.casefold().split()).rstrip(" .!?,;:")
+
+
+class PitchCache:
+    """Small in-memory cache: remembers recent pitches so repeated ideas skip the Gemini call."""
+
+    def __init__(self, ttl=CACHE_TTL_SECONDS, max_entries=CACHE_MAX_ENTRIES, clock=time.time):
+        self._ttl = ttl
+        self._max = max_entries
+        self._clock = clock
+        self._data = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, idea: str):
+        key = normalize_idea(idea)
+        with self._lock:
+            item = self._data.get(key)
+            if item is None:
+                return None
+            saved_at, pitch = item
+            if self._clock() - saved_at > self._ttl:
+                del self._data[key]
+                return None
+            self._data.move_to_end(key)
+            return deepcopy(pitch)
+
+    def set(self, idea: str, pitch: dict) -> None:
+        key = normalize_idea(idea)
+        with self._lock:
+            self._data[key] = (self._clock(), deepcopy(pitch))
+            self._data.move_to_end(key)
+            while len(self._data) > self._max:
+                self._data.popitem(last=False)
+
+
+@st.cache_resource
+def get_pitch_cache():
+    return PitchCache()
+
+
+def get_pitch(client, cache, idea: str, force_fresh: bool = False):
+    """Return (pitch, from_cache). Only successful results are cached; errors are never saved."""
+    if not force_fresh:
+        cached = cache.get(idea)
+        if cached is not None:
+            return cached, True
+    pitch = generate_pitch(client, idea)
+    cache.set(idea, pitch)
+    return pitch, False
+
+
 def as_text(value) -> str:
     """Gemini occasionally returns a list instead of a string; normalise it."""
     if isinstance(value, list):
@@ -457,16 +517,23 @@ def main():
             max_chars=MAX_IDEA_CHARS,
         )
         clicked = st.button("Generate pitch deck →", type="primary")
+        regenerate = False
+        if st.session_state.get("pitch"):
+            regenerate = st.button("Regenerate (fresh version)")
 
-        if clicked:
-            idea = idea.strip()
+        if clicked or regenerate:
+            idea = idea.strip() or (st.session_state.get("idea", "") if regenerate else "")
             if len(idea) < 8:
                 st.warning("Please enter a business idea of at least a few words.")
             else:
                 with st.spinner("Crafting your pitch..."):
                     try:
-                        st.session_state["pitch"] = generate_pitch(client, idea)
+                        pitch_result, from_cache = get_pitch(
+                            client, get_pitch_cache(), idea, force_fresh=regenerate
+                        )
+                        st.session_state["pitch"] = pitch_result
                         st.session_state["idea"] = idea
+                        st.session_state["from_cache"] = from_cache
                     except errors.APIError as exc:
                         code = getattr(exc, "code", None)
                         if code in RETRYABLE_CODES:
@@ -487,6 +554,9 @@ def main():
                         st.error("Gemini returned an unexpected response. Please try again.")
                     except Exception as exc:
                         st.error(f"Generation failed: {exc}")
+
+        if st.session_state.get("from_cache"):
+            st.caption("⚡ Loaded instantly from saved results. Press Regenerate for a fresh version.")
 
         st.markdown(EXAMPLES_HTML, unsafe_allow_html=True)
 
