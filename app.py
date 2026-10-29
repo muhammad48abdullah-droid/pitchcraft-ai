@@ -9,6 +9,7 @@ import os
 import re
 import threading
 import time
+import urllib.request
 from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -464,10 +465,47 @@ def get_pitch(client, cache, idea: str, force_fresh: bool = False):
     return pitch, False
 
 
+_SHEET_WARNED = False
+
+
+def send_to_sheet(event: str, idea_id: str, near_repeat: bool) -> None:
+    """Append one anonymous row to your Google Sheet via an Apps Script web app (optional).
+    Sends only: event type, a short random idea code, and a near-repeat flag. Never the idea text.
+    The outcome is printed to the app logs (Manage app) so problems are easy to spot."""
+    global _SHEET_WARNED
+    url = get_secret("SHEET_WEBHOOK_URL")
+    token = get_secret("SHEET_WEBHOOK_TOKEN")
+    if not url or not token or not str(url).startswith("https://"):
+        if not _SHEET_WARNED:
+            _SHEET_WARNED = True
+            print(
+                "[pitchcraft] sheet logging is OFF: set SHEET_WEBHOOK_URL (https://...) and "
+                "SHEET_WEBHOOK_TOKEN in Secrets",
+                flush=True,
+            )
+        return
+    body = json.dumps(
+        {"token": token, "event": event.upper(), "idea_id": idea_id, "near_repeat": bool(near_repeat)}
+    ).encode("utf-8")
+
+    def _post():
+        try:
+            req = urllib.request.Request(
+                url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+            )
+            reply = urllib.request.urlopen(req, timeout=8).read(200).decode("utf-8", "ignore").strip()
+            print(f"[pitchcraft] sheet log reply: {reply[:40]!r}", flush=True)  # 'ok' = row added
+        except Exception as exc:  # logging must never break the app
+            print(f"[pitchcraft] sheet log FAILED: {type(exc).__name__}: {exc}", flush=True)
+
+    threading.Thread(target=_post, daemon=True).start()
+
+
 class Stats:
     """Counts cache hits/misses. Keeps counts and an anonymous code per idea, never the idea text."""
 
-    def __init__(self, clock=time.time):
+    def __init__(self, clock=time.time, sink=None):
+        self._sink = sink or send_to_sheet
         self._lock = threading.Lock()
         self.started_at = clock()
         self.counts = {"hit": 0, "miss": 0, "regen": 0, "error": 0}
@@ -502,6 +540,7 @@ class Stats:
             f"[pitchcraft] {stamp}Z event={event.upper()} idea_id={self.idea_id(idea)} near_repeat={near}",
             flush=True,
         )
+        self._sink(event, self.idea_id(idea), near)
         return near
 
     def summary(self) -> dict:
@@ -538,16 +577,23 @@ def tracked_get_pitch(client, cache, stats, idea: str, force_fresh: bool = False
     return pitch, from_cache
 
 
-def stats_unlocked() -> bool:
-    """The stats panel opens only at ?stats=<STATS_KEY>. With no STATS_KEY secret it stays off."""
-    secret = get_secret("STATS_KEY")
-    if not secret:
-        return False
+def stats_status() -> str:
+    """'none' (no ?stats in the link), 'off' (no STATS_KEY secret), 'mismatch' or 'ok'."""
     try:
         provided = str(st.query_params.get("stats", ""))
     except Exception:
-        return False
-    return bool(provided) and hmac.compare_digest(provided.encode("utf-8"), secret.encode("utf-8"))
+        return "none"
+    if not provided:
+        return "none"
+    secret = get_secret("STATS_KEY")
+    if not secret:
+        return "off"
+    return "ok" if hmac.compare_digest(provided.encode("utf-8"), secret.encode("utf-8")) else "mismatch"
+
+
+def stats_unlocked() -> bool:
+    """The stats panel opens only at ?stats=<STATS_KEY>. With no STATS_KEY secret it stays off."""
+    return stats_status() == "ok"
 
 
 def stats_html(summary: dict) -> str:
@@ -685,8 +731,13 @@ def main():
         )
         st.caption("AI-generated content is a starting point. Verify market figures before presenting.")
 
-    if stats_unlocked():
+    status = stats_status()
+    if status == "ok":
         st.markdown(stats_html(get_stats().summary()), unsafe_allow_html=True)
+    elif status == "off":
+        st.caption("Stats: no STATS_KEY is set in this app's Secrets yet.")
+    elif status == "mismatch":
+        st.caption("Stats: the key in the link doesn't match the STATS_KEY in Secrets.")
 
     st.markdown(features_html() + faq_html() + footer_html(), unsafe_allow_html=True)
 
